@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Secure Notes Manager</title>
+
+  <!-- Google Fonts - Picked these because they feel clean without being boring -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- CryptoJS for AES encryption and SHA-256 hashing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+
+  <!-- jsPDF for PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- ===================== LOCK SCREEN ===================== -->
+  <div id="lockScreen" class="screen active">
+    <div class="lock-container">
+      <div class="lock-header">
+        <div class="lock-icon">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <h1>Secure Notes</h1>
+        <p class="lock-subtitle">Your notes, encrypted and private.</p>
+      </div>
+
+      <!-- Setup form (first time) -->
+      <div id="setupForm" class="auth-form hidden">
+        <h2>Set Up Your Vault</h2>
+        <p class="form-hint">Choose a strong master password. This cannot be recovered if forgotten.</p>
+
+        <div class="input-group">
+          <label for="setupPassword">Master Password</label>
+          <div class="input-wrapper">
+            <input type="password" id="setupPassword" placeholder="Enter a strong password" autocomplete="new-password" />
+            <button type="button" class="toggle-pw" data-target="setupPassword">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
+          <!-- Password strength meter -->
+          <div class="strength-meter">
+            <div class="strength-bar">
+              <div id="strengthFill" class="strength-fill"></div>
+            </div>
+            <span id="strengthLabel" class="strength-label">—</span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="confirmPassword">Confirm Password</label>
+          <div class="input-wrapper">
+            <input type="password" id="confirmPassword" placeholder="Type it again" autocomplete="new-password" />
+            <button type="button" class="toggle-pw" data-target="confirmPassword">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
+        </div>
+
+        <button id="setupBtn" class="btn btn-primary btn-full">Create Vault</button>
+        <p class="security-note">⚠️ This password cannot be recovered. Store it somewhere safe.</p>
+      </div>
+
+      <!-- Unlock form (returning user) -->
+      <div id="unlockForm" class="auth-form hidden">
+        <h2>Unlock Your Vault</h2>
+        <p class="form-hint">Enter your master password to access your notes.</p>
+
+        <div class="input-group">
+          <label for="unlockPassword">Master Password</label>
+          <div class="input-wrapper">
+            <input type="password" id="unlockPassword" placeholder="Enter your password" autocomplete="current-password" />
+            <button type="button" class="toggle-pw" data-target="unlockPassword">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="loginError" class="error-msg hidden">Incorrect password. Please try again.</div>
+
+        <button id="unlockBtn" class="btn btn-primary btn-full">Unlock</button>
+
+        <button id="resetVaultBtn" class="btn-link danger-link">Reset vault (deletes all notes)</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===================== MAIN APP ===================== -->
+  <div id="appScreen" class="screen hidden">
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="app-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          <span>SecureNotes</span>
+        </div>
+        <button id="newNoteBtn" class="btn btn-primary" title="New Note (Ctrl+N)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          New Note
+        </button>
+      </div>
+
+      <div class="search-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="searchInput" placeholder="Search notes..." />
+        <button id="clearSearch" class="clear-search hidden">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <!-- Category filter -->
+      <div class="category-section">
+        <span class="section-label">Categories</span>
+        <div class="category-list" id="categoryList">
+          <button class="category-btn active" data-category="all">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+            All Notes
+            <span class="count-badge" id="allCount">0</span>
+          </button>
+          <button class="category-btn" data-category="personal">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            Personal
+            <span class="count-badge" id="personalCount">0</span>
+          </button>
+          <button class="category-btn" data-category="work">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+            Work
+            <span class="count-badge" id="workCount">0</span>
+          </button>
+          <button class="category-btn" data-category="study">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 0 3-3h7z"></path></svg>
+            Study
+            <span class="count-badge" id="studyCount">0</span>
+          </button>
+          <button class="category-btn" data-category="ideas">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            Ideas
+            <span class="count-badge" id="ideasCount">0</span>
+          </button>
+          <button class="category-btn" data-category="other">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
+            Other
+            <span class="count-badge" id="otherCount">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Notes list -->
+      <div class="notes-list-section">
+        <span class="section-label">Notes</span>
+        <div id="notesList" class="notes-list">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Sidebar footer -->
+      <div class="sidebar-footer">
+        <button id="themeToggle" class="icon-btn" title="Toggle dark mode">
+          <svg id="themeIconLight" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          <svg id="themeIconDark" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        </button>
+        <button id="settingsBtn" class="icon-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
+        <button id="lockBtn" class="icon-btn" title="Lock vault (Ctrl+L)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Editor Area -->
+    <main class="editor-area" id="editorArea">
+
+      <!-- Empty state when no note selected -->
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </div>
+        <h3>No note selected</h3>
+        <p>Pick a note from the sidebar or create a new one to get started.</p>
+        <button class="btn btn-primary" id="emptyNewBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          New Note
+        </button>
+      </div>
+
+      <!-- Note editor (hidden when nothing selected) -->
+      <div id="noteEditor" class="note-editor hidden">
+        <div class="editor-toolbar">
+          <div class="toolbar-left">
+            <input type="text" id="noteTitleInput" class="note-title-input" placeholder="Note title..." maxlength="100" />
+            <select id="noteCategorySelect" class="category-select">
+              <option value="personal">Personal</option>
+              <option value="work">Work</option>
+              <option value="study">Study</option>
+              <option value="ideas">Ideas</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="toolbar-right">
+            <div class="integrity-badge" id="integrityBadge" title="Note integrity status">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <span>Verified</span>
+            </div>
+            <button id="importFileBtn" class="btn btn-secondary" title="Import TXT file">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              Import
+            </button>
+            <input type="file" id="fileImportInput" accept=".txt" class="hidden" />
+            <div class="export-dropdown">
+              <button class="btn btn-secondary" id="exportBtn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Export
+              </button>
+              <div class="export-menu hidden" id="exportMenu">
+                <button id="exportTxtBtn">Export as TXT</button>
+                <button id="exportPdfBtn">Export as PDF</button>
+              </div>
+            </div>
+            <button id="saveNoteBtn" class="btn btn-primary" title="Save note (Ctrl+S)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+              Save
+            </button>
+            <button id="deleteNoteBtn" class="btn btn-danger" title="Delete note">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="editor-meta">
+          <span id="createdDate" class="meta-text"></span>
+          <span class="meta-separator">·</span>
+          <span id="modifiedDate" class="meta-text"></span>
+          <span class="meta-separator">·</span>
+          <span id="wordCount" class="meta-text">0 words</span>
+        </div>
+
+        <textarea id="noteContent" class="note-content" placeholder="Start writing your note here..."></textarea>
+
+        <div class="editor-status" id="editorStatus">
+          <span id="hashDisplay" class="hash-display" title="SHA-256 hash of note content"></span>
+          <span id="autoSaveIndicator" class="autosave-indicator">saved</span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ===================== SETTINGS MODAL ===================== -->
+  <div id="settingsModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Settings</h3>
+        <button class="modal-close" id="closeSettings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <h4>Auto-Lock</h4>
+          <p class="settings-desc">Automatically lock the vault after inactivity.</p>
+          <div class="settings-row">
+            <label for="autoLockSelect">Lock after</label>
+            <select id="autoLockSelect" class="settings-select">
+              <option value="1">1 minute</option>
+              <option value="5" selected>5 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="0">Never</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Change Password</h4>
+          <p class="settings-desc">Update your master password. You'll need your current password.</p>
+          <div class="input-group">
+            <label for="currentPwInput">Current Password</label>
+            <input type="password" id="currentPwInput" placeholder="Current password" />
+          </div>
+          <div class="input-group">
+            <label for="newPwInput">New Password</label>
+            <input type="password" id="newPwInput" placeholder="New password" />
+            <div class="strength-meter">
+              <div class="strength-bar">
+                <div id="newStrengthFill" class="strength-fill"></div>
+              </div>
+              <span id="newStrengthLabel" class="strength-label">—</span>
+            </div>
+          </div>
+          <div class="input-group">
+            <label for="confirmNewPwInput">Confirm New Password</label>
+            <input type="password" id="confirmNewPwInput" placeholder="Confirm new password" />
+          </div>
+          <button id="changePasswordBtn" class="btn btn-primary">Update Password</button>
+          <div id="passwordChangeMsg" class="hidden"></div>
+        </div>
+
+        <div class="settings-section">
+          <h4>About</h4>
+          <p class="settings-desc">Secure Notes Manager v1.0 — A browser-based encrypted note-taking app.<br/>
+          Built with HTML, CSS, JavaScript. Encryption via CryptoJS (AES-256).</p>
+          <p class="settings-desc warning-text">⚠️ <strong>Security note:</strong> This is a client-side application. The encryption key is derived from your master password and kept in memory during your session. Anyone with physical access to your browser's localStorage can see encrypted data (but not the plaintext without your password). Do not use this for highly sensitive information like financial credentials.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CONFIRM MODAL ===================== -->
+  <div id="confirmModal" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3 id="confirmTitle">Confirm Action</h3>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage">Are you sure?</p>
+        <div class="modal-actions">
+          <button id="confirmCancelBtn" class="btn btn-secondary">Cancel</button>
+          <button id="confirmOkBtn" class="btn btn-danger">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== TOAST CONTAINER ===================== -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Load JS modules in order -->
+  <script src="js/encryption.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
